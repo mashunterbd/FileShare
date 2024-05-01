@@ -32,3 +32,10 @@ mv share.sh share
 chmod +x share
 mv share /usr/local/bin/ 
 ```
+# How to use?
+
+Bring the files you want to share to a specific directory and execute from that directory.
+```
+share
+```
+Then the tool will convert all the files in your current directory into a zip-file and generate a script to download this file for you and display the QR code in front of you terminal.
