@@ -22,7 +22,7 @@ wget https://raw.githubusercontent.com/mashunterbd/HTTP-Server/main/install.sh; 
 ```
 # Automatic install
 ```
-wget https://raw.githubusercontent.com/mashunterbd/FileShare/main/share.sh; chmod +x share; mv share.sh share; mv share /usr/local/bin/ && echo -e "install successful"
+wget https://raw.githubusercontent.com/mashunterbd/FileShare/main/share.sh; chmod +x share.sh; mv share.sh share; mv share /usr/local/bin/ && echo -e "install successful"
 ```
 # Manually Install
 ```
