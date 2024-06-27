@@ -1,4 +1,5 @@
-# FileShare Script
+# FileShare
+![File Share ](https://img.shields.io/badge/File%20Share%20-blue?style=flat) || ![Auto Compass](https://img.shields.io/badge/Auto%20Compass-purple?style=flat) || ![Direct Download](https://img.shields.io/badge/Direct%20Download-brightgreen?style=flat-square) || ![KALI NETHUNTER ](https://img.shields.io/badge/KALI%20NETHUNTER%20-blue?style=flat) || ![Share with QR](https://img.shields.io/badge/Share%20with%20QR-blueviolet?style=plastic) || ![Share with password](https://img.shields.io/badge/Share%20with%20password-orange?style=flat) || ![Made with](https://img.shields.io/badge/Made%20with-bash-%23ff0000?style=flat-square&logo=bash&logoColor=white&labelColor=%23000000)
 
 ## Description
 
@@ -10,15 +11,19 @@
 
 - `share -on` 
   - Share all files in the current directory.
-- `share -off` 
-  - Stop sharing and delete `index.html` and `test.zip`.
-- `share -off -r` 
-  - Stop sharing and delete all files in the current directory.
+- `share -p` 
+  - Through it you can share photos of specific dates.`.
+- `share -von` 
+  - All the files in the directory can be displayed on the website..
 - `share -on-en` 
   - Share all files in the current directory with password encryption.
 - `share --help` 
   - Display the help message.
-
+- `share -play-v` 
+  - You can play all the videos of the current director.
+- `share -u` 
+  - start PHP upload server.
+  
 ### Commands
 
 - To share files in the current directory:
@@ -26,15 +31,6 @@
   share -on
   ```
 
-- To stop sharing and delete `index.html` and `test.zip`:
-  ```sh
-  share -off
-  ```
-
-- To stop sharing and delete all files in the current directory:
-  ```sh
-  share -off -r
-  ```
 
 - To share files with password encryption:
   ```sh
