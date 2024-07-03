@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the list of required tools
-required_tools=(zip wget npm python3 qrcode-terminal server ffmpeg php exiftool)
+required_tools=(zip wget npm python3 qrcode-terminal ffmpeg php exiftool)
 
 # Function to check and install missing tools
 check_and_install_tools() {
@@ -23,11 +23,6 @@ check_and_install_tools() {
                     ;;
                 qrcode-terminal)
                     npm install -g qrcode-terminal || { echo "Failed to install $tool"; exit 1; }
-                    ;;
-                server)
-                    wget https://raw.githubusercontent.com/mashunterbd/HTTP-Server/main/install.sh
-                    chmod +x install.sh
-                    ./install.sh || { echo "Failed to install $tool"; exit 1; }
                     ;;
                 ffmpeg)
                     sudo apt-get install -y ffmpeg || { echo "Failed to install $tool"; exit 1; }
@@ -64,10 +59,6 @@ show_help() {
     echo "  share --help         Display this help message"
 }
 
-# Function to generate QR code
-generate_qr() {
-    qrcode-terminal "http://${1}:80"
-}
 
 # Function to start sharing files with visual interface
 start_sharing_visual() {
@@ -234,18 +225,92 @@ EOF
 </html>
 EOF
 
-    # Start server
-    server -start
-    wlan0_ip=$(ip addr show wlan0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)
-    wlan1_ip=$(ip addr show wlan1 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)
+    # QR and PHP start script 
 
-    # Check for conditions to generate QR code
-    if [[ -n $wlan1_ip ]]; then
-        generate_qr "$wlan1_ip"
-    elif [[ -n $wlan0_ip ]]; then
-        generate_qr "$wlan0_ip"
+    # Function to clean up generated files
+    cleanup() {
+        echo "Cleaning up..."
+        rm -f index.html
+        echo "Server stopped and files cleaned up."
+    }
+
+    check_port() {
+        local port=$1
+        if lsof -i :$port &> /dev/null; then
+            return 1 # Port is in use
+        else
+            return 0 # Port is available
+        fi
+    }
+
+    find_available_port() {
+        local port=80
+        while ! check_port $port; do
+            port=$((RANDOM % 65535 + 1024)) # Random port between 1024 and 65535
+        done
+        echo $port
+    }
+
+    generate_qr() {
+        local interface_name=$1
+        local ip_address=$2
+        local port=$3
+        if command -v qrcode-terminal &> /dev/null; then
+            echo "Interface: $interface_name, IP: $ip_address, Port: $port"
+            qrcode-terminal "http://${ip_address}:${port}"
+        else
+            echo "qrcode-terminal is not installed. Please install it using 'npm install -g qrcode-terminal'"
+            exit 1
+        fi
+    }
+
+    start_php_server() {
+        local ip_address=$1
+        local port=$2
+        if command -v php &> /dev/null; then
+            echo "Starting PHP server at http://${ip_address}:${port}"
+            php -S "${ip_address}:${port}" &
+            PHP_SERVER_PID=$!
+            echo "PHP server is running with PID ${PHP_SERVER_PID}."
+            echo "If you want to stop the server, press the enter button or any key."
+        else
+            echo "PHP is not installed. Please install PHP to run the server."
+            exit 1
+        fi
+    }
+
+    stop_php_server() {
+        if [ -n "$PHP_SERVER_PID" ]; then
+            kill $PHP_SERVER_PID
+            echo "PHP server stopped."
+        fi
+    }
+
+    # Check for IP addresses on all network interfaces and store interface names
+    interface_info=$(ip -o -4 addr show | awk '$4 ~ /^10\.|^172\.16\.|^192\.168\./ {print $2, $4}' | cut -d/ -f1 | head -n 1)
+    interface_name=$(echo $interface_info | awk '{print $1}')
+    ip_address=$(echo $interface_info | awk '{print $2}')
+
+    # Find an available port starting from 80
+    port=$(find_available_port)
+
+    if [ -n "$ip_address" ]; then
+        generate_qr "$interface_name" "$ip_address" "$port"
+        start_php_server "$ip_address" "$port"
+    else
+        echo "No IP address found for any interface. Generating QR code for localhost."
+        generate_qr "localhost" "localhost" "$port"
+        start_php_server "localhost" "$port"
     fi
+
+    # Trap to handle termination, stop the PHP server, and clean up files
+    trap "stop_php_server; cleanup" EXIT
+
+    # Wait for user input to stop the server
+    read -r -p "Press enter or any key to stop the server..."
+    stop_php_server
 }
+
 
 # Function to start sharing files
 start_sharing() {
@@ -272,6 +337,8 @@ zip test.zip *
 EOL
 
 
+# QR and php satart script 
+
 # Function to clean up generated files
 cleanup() {
     echo "Cleaning up..."
@@ -280,44 +347,81 @@ cleanup() {
     echo "Server stopped and files cleaned up."
 }
 
-# Trap to handle script exit
-trap 'cleanup' EXIT
+check_port() {
+    local port=$1
+    if lsof -i :$port &> /dev/null; then
+        return 1 # Port is in use
+    else
+        return 0 # Port is available
+    fi
+}
 
-# Start PHP server and allow stopping with a key press
-php -S 0.0.0.0:80 &
+find_available_port() {
+    local port=80
+    while ! check_port $port; do
+        port=$((RANDOM % 65535 + 1024)) # Random port between 1024 and 65535
+    done
+    echo $port
+}
 
-PHP_PID=$!
-
-# Generate QR code for the server URL
 generate_qr() {
-    local ip_address=$1
+    local interface_name=$1
+    local ip_address=$2
+    local port=$3
     if command -v qrcode-terminal &> /dev/null; then
-        qrcode-terminal "http://${ip_address}:80"
+        echo "Interface: $interface_name, IP: $ip_address, Port: $port"
+        qrcode-terminal "http://${ip_address}:${port}"
     else
         echo "qrcode-terminal is not installed. Please install it using 'npm install -g qrcode-terminal'"
         exit 1
     fi
 }
 
-# Check for IP addresses on wlan0 and wlan1
-wlan0_ip=$(ip addr show wlan0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)
-wlan1_ip=$(ip addr show wlan1 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)
+start_php_server() {
+    local ip_address=$1
+    local port=$2
+    if command -v php &> /dev/null; then
+        echo "Starting PHP server at http://${ip_address}:${port}"
+        php -S "${ip_address}:${port}" &
+        PHP_SERVER_PID=$!
+        echo "PHP server is running with PID ${PHP_SERVER_PID}."
+        echo "If you want to stop the server, press the enter button or any key."
+    else
+        echo "PHP is not installed. Please install PHP to run the server."
+        exit 1
+    fi
+}
 
-if [ -n "$wlan0_ip" ]; then
-    generate_qr "$wlan0_ip"
-elif [ -n "$wlan1_ip" ]; then
-    generate_qr "$wlan1_ip"
+stop_php_server() {
+    if [ -n "$PHP_SERVER_PID" ]; then
+        kill $PHP_SERVER_PID
+        echo "PHP server stopped."
+    fi
+}
+
+# Check for IP addresses on all network interfaces and store interface names
+interface_info=$(ip -o -4 addr show | awk '$4 ~ /^10\.|^172\.16\.|^192\.168\./ {print $2, $4}' | cut -d/ -f1 | head -n 1)
+interface_name=$(echo $interface_info | awk '{print $1}')
+ip_address=$(echo $interface_info | awk '{print $2}')
+
+# Find an available port starting from 80
+port=$(find_available_port)
+
+if [ -n "$ip_address" ]; then
+    generate_qr "$interface_name" "$ip_address" "$port"
+    start_php_server "$ip_address" "$port"
 else
-    echo "No IP address found for wlan0 or wlan1. Generating QR code for localhost."
-    generate_qr "localhost"
+    echo "No IP address found for any interface. Generating QR code for localhost."
+    generate_qr "localhost" "localhost" "$port"
+    start_php_server "localhost" "$port"
 fi
 
-# Display message and wait for key press
-echo "If you want to close the server, press Enter or any key."
-read -n 1 -s
+# Trap to handle termination, stop the PHP server, and clean up files
+trap "stop_php_server; cleanup" EXIT
 
-# Kill the PHP server process
-kill $PHP_PID
+# Wait for user input to stop the server
+read -r -p "Press enter or any key to stop the server..."
+stop_php_server
 
 }
 
@@ -526,6 +630,8 @@ body {
 }
 EOF
 
+# QR and php satart script 
+
 # Function to clean up generated files
 cleanup() {
     echo "Cleaning up..."
@@ -534,52 +640,89 @@ cleanup() {
     echo "Server stopped and files cleaned up."
 }
 
-# Trap to handle script exit
-trap 'cleanup' EXIT
+check_port() {
+    local port=$1
+    if lsof -i :$port &> /dev/null; then
+        return 1 # Port is in use
+    else
+        return 0 # Port is available
+    fi
+}
 
-# Start PHP server and allow stopping with a key press
-php -S 0.0.0.0:8000 &
+find_available_port() {
+    local port=80
+    while ! check_port $port; do
+        port=$((RANDOM % 65535 + 1024)) # Random port between 1024 and 65535
+    done
+    echo $port
+}
 
-PHP_PID=$!
-
-# Generate QR code for the server URL
 generate_qr() {
-    local ip_address=$1
+    local interface_name=$1
+    local ip_address=$2
+    local port=$3
     if command -v qrcode-terminal &> /dev/null; then
-        qrcode-terminal "http://${ip_address}:8000"
+        echo "Interface: $interface_name, IP: $ip_address, Port: $port"
+        qrcode-terminal "http://${ip_address}:${port}"
     else
         echo "qrcode-terminal is not installed. Please install it using 'npm install -g qrcode-terminal'"
         exit 1
     fi
 }
 
-# Check for IP addresses on wlan0 and wlan1
-wlan0_ip=$(ip addr show wlan0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)
-wlan1_ip=$(ip addr show wlan1 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)
+start_php_server() {
+    local ip_address=$1
+    local port=$2
+    if command -v php &> /dev/null; then
+        echo "Starting PHP server at http://${ip_address}:${port}"
+        php -S "${ip_address}:${port}" &
+        PHP_SERVER_PID=$!
+        echo "PHP server is running with PID ${PHP_SERVER_PID}."
+        echo "If you want to stop the server, press the enter button or any key."
+    else
+        echo "PHP is not installed. Please install PHP to run the server."
+        exit 1
+    fi
+}
 
-if [ -n "$wlan0_ip" ]; then
-    generate_qr "$wlan0_ip"
-elif [ -n "$wlan1_ip" ]; then
-    generate_qr "$wlan1_ip"
+stop_php_server() {
+    if [ -n "$PHP_SERVER_PID" ]; then
+        kill $PHP_SERVER_PID
+        echo "PHP server stopped."
+    fi
+}
+
+# Check for IP addresses on all network interfaces and store interface names
+interface_info=$(ip -o -4 addr show | awk '$4 ~ /^10\.|^172\.16\.|^192\.168\./ {print $2, $4}' | cut -d/ -f1 | head -n 1)
+interface_name=$(echo $interface_info | awk '{print $1}')
+ip_address=$(echo $interface_info | awk '{print $2}')
+
+# Find an available port starting from 80
+port=$(find_available_port)
+
+if [ -n "$ip_address" ]; then
+    generate_qr "$interface_name" "$ip_address" "$port"
+    start_php_server "$ip_address" "$port"
 else
-    echo "No IP address found for wlan0 or wlan1. Generating QR code for localhost."
-    generate_qr "localhost"
+    echo "No IP address found for any interface. Generating QR code for localhost."
+    generate_qr "localhost" "localhost" "$port"
+    start_php_server "localhost" "$port"
 fi
 
-# Display message and wait for key press
-echo "If you want to close the server, press Enter or any key."
-read -n 1 -s
+# Trap to handle termination, stop the PHP server, and clean up files
+trap "stop_php_server; cleanup" EXIT
 
-# Kill the PHP server process
-kill $PHP_PID
+# Wait for user input to stop the server
+read -r -p "Press enter or any key to stop the server..."
+stop_php_server
 
 }
 
 # Start Upload Server For Multiple File
 start_upload() { 
-# Function to create index.html
-create_index_html() {
-    cat > index.html <<EOL
+    # Function to create index.html
+    create_index_html() {
+        cat > index.html <<EOL
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -632,14 +775,22 @@ create_index_html() {
 </body>
 </html>
 EOL
-}
+    }
 
-# Function to create upload.php
-create_upload_php() {
-    cat > upload.php <<EOL
+    # Function to create upload.php
+    create_upload_php() {
+        cat > upload.php <<EOL
 <style>
 .success-message {
   color: green;
+  font-size: 40px;
+  font-weight: bold;
+  border: 5px solid #000;
+  padding: 10px;
+  border-radius: 10px;
+}
+.error-message {
+  color: red;
   font-size: 40px;
   font-weight: bold;
   border: 5px solid #000;
@@ -665,62 +816,100 @@ if (isset(\$_POST['submit'])) {
 }
 ?>
 EOL
-}
+    }
 
-# Generate QR code for the server URL
-generate_qr() {
-    local ip_address=$1
-    if command -v qrcode-terminal &> /dev/null; then
-        qrcode-terminal "http://${ip_address}:8000"
-    else
-        echo "qrcode-terminal is not installed. Please install it using 'npm install -g qrcode-terminal'"
-        exit 1
+    # Function to clean up generated files
+    cleanup() {
+        echo "Cleaning up..."
+        rm -f index.html upload.php
+        echo "Server stopped and files cleaned up."
+    }
+
+    check_port() {
+        local port=$1
+        if lsof -i :$port &> /dev/null; then
+            return 1 # Port is in use
+        else
+            return 0 # Port is available
+        fi
+    }
+
+    find_available_port() {
+        local port=80
+        while ! check_port $port; do
+            port=$((RANDOM % 65535 + 1024)) # Random port between 1024 and 65535
+        done
+        echo $port
+    }
+
+    generate_qr() {
+        local interface_name=$1
+        local ip_address=$2
+        local port=$3
+        if command -v qrcode-terminal &> /dev/null; then
+            echo "Interface: $interface_name, IP: $ip_address, Port: $port"
+            qrcode-terminal "http://${ip_address}:${port}"
+        else
+            echo "qrcode-terminal is not installed. Please install it using 'npm install -g qrcode-terminal'"
+            exit 1
+        fi
+    }
+
+    start_php_server() {
+        local ip_address=$1
+        local port=$2
+        if command -v php &> /dev/null; then
+            echo "Starting PHP server at http://${ip_address}:${port}"
+            php -S "${ip_address}:${port}" &
+            PHP_SERVER_PID=$!
+            echo "PHP server is running with PID ${PHP_SERVER_PID}."
+            echo "If you want to stop the server, press the enter button or any key."
+        else
+            echo "PHP is not installed. Please install PHP to run the server."
+            exit 1
+        fi
+    }
+
+    stop_php_server() {
+        if [ -n "$PHP_SERVER_PID" ]; then
+            kill $PHP_SERVER_PID
+            echo "PHP server stopped."
+        fi
+    }
+
+    # Ensure the 'uploads' directory exists
+    if [ ! -d "uploads" ]; then
+        mkdir uploads
     fi
-}
 
-# Function to start the PHP built-in server
-start_server() {
-    echo "Starting PHP built-in server on 0.0.0.0:8000"
-    php -S 0.0.0.0:8000 &
-    server_pid=$!
-    echo "Server is running. Press Enter to stop."
-    
-    # Display QR code
-    generate_qr "$1"
-    
-    read -r
-    kill $server_pid
-    echo "Server stopped."
+    # Create the necessary files
+    create_index_html
+    create_upload_php
 
-    # Clean up files
-    rm index.html upload.php
-    echo "Temporary files deleted."
-}
+    # Check for IP addresses on all network interfaces and store interface names
+    interface_info=$(ip -o -4 addr show | awk '$4 ~ /^10\.|^172\.16\.|^192\.168\./ {print $2, $4}' | cut -d/ -f1 | head -n 1)
+    interface_name=$(echo $interface_info | awk '{print $1}')
+    ip_address=$(echo $interface_info | awk '{print $2}')
 
-# Ensure the 'uploads' directory exists
-if [ ! -d "uploads" ]; then
-    mkdir uploads
-fi
+    # Find an available port starting from 80
+    port=$(find_available_port)
 
-# Create the necessary files
-create_index_html
-create_upload_php
+    if [ -n "$ip_address" ]; then
+        generate_qr "$interface_name" "$ip_address" "$port"
+        start_php_server "$ip_address" "$port"
+    else
+        echo "No IP address found for any interface. Generating QR code for localhost."
+        generate_qr "localhost" "localhost" "$port"
+        start_php_server "localhost" "$port"
+    fi
 
-# Check for IP addresses on wlan0 and wlan1
-wlan0_ip=$(ip addr show wlan0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)
-wlan1_ip=$(ip addr show wlan1 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1)
+    # Trap to handle termination, stop the PHP server, and clean up files
+    trap "stop_php_server; cleanup" EXIT
 
-if [ -n "$wlan0_ip" ]; then
-    ip_address="$wlan0_ip"
-elif [ -n "$wlan1_ip" ]; then
-    ip_address="$wlan1_ip"
-else
-    echo "No IP address found for wlan0 or wlan1. Using localhost."
-    ip_address="localhost"
-fi
+    # Wait for user input to stop the server
+    read -r -p "Press enter or any key to stop the server..."
+    stop_php_server
 
-# Start the server
-start_server "$ip_address"
 
 }
 
@@ -756,48 +945,102 @@ share_with_encryption() {
 </html>
 EOL
 
-    # Stop server if already started previously
-    server -stop
+# QR and php satart script 
 
-    # Run server
-    server -start
+# Function to clean up generated files
+cleanup() {
+    echo "Cleaning up..."
+    rm -f index.html test.zip
+    
+    echo "Server stopped and files cleaned up."
+}
 
-    # Function to generate QR code
-    generate_qr() {
-        qrcode-terminal "http://${1}:80"
-    }
-
-    # Check if wlan0 has an IP address
-    if ip addr show wlan0 | grep -q "inet "; then
-        wlan0_ip=$(ip addr show wlan0 | awk '/inet / {print $2}' | cut -d '/' -f1)
-    fi
-
-    # Check if wlan1 has an IP address
-    if ip addr show wlan1 | grep -q "inet "; then
-        wlan1_ip=$(ip addr show wlan1 | awk '/inet / {print $2}' | cut -d '/' -f1)
-    fi
-
-    # Check for conditions to generate QR code
-    if [[ -n $wlan1_ip ]]; then
-        generate_qr "$wlan1_ip"
-    elif [[ -n $wlan0_ip ]]; then
-        generate_qr "$wlan0_ip"
+check_port() {
+    local port=$1
+    if lsof -i :$port &> /dev/null; then
+        return 1 # Port is in use
+    else
+        return 0 # Port is available
     fi
 }
 
-# Function to wait for user input and then clean up
-wait_and_cleanup() {
-    echo "Press any key to stop and clean up."
-    read -n 1 -s
-    stop_sharing
+find_available_port() {
+    local port=80
+    while ! check_port $port; do
+        port=$((RANDOM % 65535 + 1024)) # Random port between 1024 and 65535
+    done
+    echo $port
 }
 
-# Share Photos Scripts 
+generate_qr() {
+    local interface_name=$1
+    local ip_address=$2
+    local port=$3
+    if command -v qrcode-terminal &> /dev/null; then
+        echo "Interface: $interface_name, IP: $ip_address, Port: $port"
+        qrcode-terminal "http://${ip_address}:${port}"
+    else
+        echo "qrcode-terminal is not installed. Please install it using 'npm install -g qrcode-terminal'"
+        exit 1
+    fi
+}
+
+start_php_server() {
+    local ip_address=$1
+    local port=$2
+    if command -v php &> /dev/null; then
+        echo "Starting PHP server at http://${ip_address}:${port}"
+        php -S "${ip_address}:${port}" &
+        PHP_SERVER_PID=$!
+        echo "PHP server is running with PID ${PHP_SERVER_PID}."
+        echo "If you want to stop the server, press the enter button or any key."
+    else
+        echo "PHP is not installed. Please install PHP to run the server."
+        exit 1
+    fi
+}
+
+stop_php_server() {
+    if [ -n "$PHP_SERVER_PID" ]; then
+        kill $PHP_SERVER_PID
+        echo "PHP server stopped."
+    fi
+}
+
+# Check for IP addresses on all network interfaces and store interface names
+interface_info=$(ip -o -4 addr show | awk '$4 ~ /^10\.|^172\.16\.|^192\.168\./ {print $2, $4}' | cut -d/ -f1 | head -n 1)
+interface_name=$(echo $interface_info | awk '{print $1}')
+ip_address=$(echo $interface_info | awk '{print $2}')
+
+# Find an available port starting from 80
+port=$(find_available_port)
+
+if [ -n "$ip_address" ]; then
+    generate_qr "$interface_name" "$ip_address" "$port"
+    start_php_server "$ip_address" "$port"
+else
+    echo "No IP address found for any interface. Generating QR code for localhost."
+    generate_qr "localhost" "localhost" "$port"
+    start_php_server "localhost" "$port"
+fi
+
+# Trap to handle termination, stop the PHP server, and clean up files
+trap "stop_php_server; cleanup" EXIT
+
+# Wait for user input to stop the server
+read -r -p "Press enter or any key to stop the server..."
+stop_php_server
+
+}
+
+
+# Function to share photos
 share_photos() {
+    filter_type=$1
 
-# Function to create the HTML file with the file list based on their types
-create_html_file() {
-  cat <<EOF > index.html
+    # Function to create the HTML file with the file list based on their types
+    create_html_file() {
+        cat <<EOF > index.html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -914,39 +1157,41 @@ create_html_file() {
     <div class="file-container">
 EOF
 
-  # Add file items to the HTML
-  while read file; do
-    if [[ -f $file ]]; then
-      file_icon=""
-      case "${file##*.}" in
-        jpg|jpeg|png|gif)
-          file_icon="$file"
-          ;;
-        mp4|avi|mov)
-          file_icon="video-icon.png"  # Placeholder icon for video files
-          ;;
-        mp3|wav)
-          file_icon="audio-icon.png"  # Placeholder icon for audio files
-          ;;
-        txt)
-          file_icon="txt-icon.png"  # Placeholder icon for text files
-          ;;
-        pdf)
-          file_icon="pdf-icon.png"  # Placeholder icon for PDF files
-          ;;
-        doc|docx)
-          file_icon="doc-icon.png"  # Placeholder icon for document files
-          ;;
-        *)
-          file_icon="file-icon.png"  # Generic file icon
-          ;;
-      esac
+        # Add file items to the HTML
+        while read -r file; do
+            # Extract the file name and trim spaces
+            file=$(echo $file | awk -F": " '{print $2}')
+            if [[ -f $file ]]; then
+                file_icon=""
+                case "${file##*.}" in
+                    jpg|jpeg|png|gif)
+                        file_icon="$file"
+                        ;;
+                    mp4|avi|mov)
+                        file_icon="video-icon.png"  # Placeholder icon for video files
+                        ;;
+                    mp3|wav)
+                        file_icon="audio-icon.png"  # Placeholder icon for audio files
+                        ;;
+                    txt)
+                        file_icon="txt-icon.png"  # Placeholder icon for text files
+                        ;;
+                    pdf)
+                        file_icon="pdf-icon.png"  # Placeholder icon for PDF files
+                        ;;
+                    doc|docx)
+                        file_icon="doc-icon.png"  # Placeholder icon for document files
+                        ;;
+                    *)
+                        file_icon="file-icon.png"  # Generic file icon
+                        ;;
+                esac
 
-      # Copy the file to the current directory for preview and download purposes
-      cp "$file" .
+                # Copy the file to the current directory for preview and download purposes
+                cp "$file" .
 
-      # Generate HTML for each file
-      cat <<EOF >> index.html
+                # Generate HTML for each file
+                cat <<EOF >> index.html
         <div class="file-item">
             <img src="$file_icon" alt="File">
             <input type="checkbox" name="fileCheckbox" value="$file">
@@ -954,100 +1199,149 @@ EOF
             <button onclick="window.location.href='$file'">Download</button>
         </div>
 EOF
-    fi
-  done < filtered_files.txt
+            fi
+        done < filtered_files.txt
 
-  # Complete HTML file
-  cat <<EOF >> index.html
+        # Complete HTML file
+        cat <<EOF >> index.html
     </div>
 </body>
 </html>
 EOF
+    }
+
+    # Main script
+    echo "Choose an option to filter photos by date:"
+    echo "1) Custom Date (YYYY/MM/DD)"
+    echo "2) Yesterday"
+    echo "3) Today"
+    read -p "Enter your choice: " choice
+
+    case $choice in
+        1)
+            read -p "Enter the date (YYYY/MM/DD): " custom_date
+            exif_date=$(echo $custom_date | tr '/' ':')
+            ;;
+        2)
+            exif_date=$(date -d "yesterday" "+%Y:%m:%d")
+            ;;
+        3)
+            exif_date=$(date "+%Y:%m:%d")
+            ;;
+        *)
+            echo "Invalid choice"
+            exit 1
+            ;;
+    esac
+
+    # Filter files based on the selected date and filter type
+    if [[ $filter_type == "C" ]]; then
+        exiftool -if '($CreateDate =~ /'"$exif_date"'/)' -FileName -q -r . > filtered_files.txt
+    elif [[ $filter_type == "M" ]]; then
+        exiftool -if '($FileModifyDate =~ /'"$exif_date"'/)' -FileName -q -r . > filtered_files.txt
+    else
+        exiftool -if '($FileModifyDate =~ /'"$exif_date"'/ || $CreateDate =~ /'"$exif_date"'/)' -FileName -q -r . > filtered_files.txt
+    fi
+
+    # Check if any files were found
+    if [[ ! -s filtered_files.txt ]]; then
+        echo "No images available for the date you provided."
+        rm filtered_files.txt
+        exit 1
+    fi
+
+    # Create the HTML file
+    create_html_file
+
+    # Ensure 'uploads' directory exists
+    if [ ! -d "uploads" ]; then
+        mkdir uploads
+    fi
+
+    # Function to clean up generated files
+    cleanup() {
+        echo "Cleaning up..."
+        rm -f index.html filtered_files.txt
+        echo "Server stopped and files cleaned up."
+    }
+
+    check_port() {
+        local port=$1
+        if lsof -i :$port &> /dev/null; then
+            return 1 # Port is in use
+        else
+            return 0 # Port is available
+        fi
+    }
+
+    find_available_port() {
+        local port=80
+        while ! check_port $port; do
+            port=$((RANDOM % 65535 + 1024)) # Random port between 1024 and 65535
+        done
+        echo $port
+    }
+
+    generate_qr() {
+        local interface_name=$1
+        local ip_address=$2
+        local port=$3
+        if command -v qrcode-terminal &> /dev/null; then
+            echo "Interface: $interface_name, IP: $ip_address, Port: $port"
+            qrcode-terminal "http://${ip_address}:${port}"
+        else
+            echo "qrcode-terminal is not installed. Please install it using 'npm install -g qrcode-terminal'"
+            exit 1
+        fi
+    }
+
+    start_php_server() {
+        local ip_address=$1
+        local port=$2
+        if command -v php &> /dev/null; then
+            echo "Starting PHP server at http://${ip_address}:${port}"
+            php -S "${ip_address}:${port}" &
+            PHP_SERVER_PID=$!
+            echo "PHP server is running with PID ${PHP_SERVER_PID}."
+            echo "If you want to stop the server, press the enter button or any key."
+        else
+            echo "PHP is not installed. Please install PHP to run the server."
+            exit 1
+        fi
+    }
+
+    stop_php_server() {
+        if [ -n "$PHP_SERVER_PID" ]; then
+            kill $PHP_SERVER_PID
+            echo "PHP server stopped."
+        fi
+    }
+
+    # Check for IP addresses on all network interfaces and store interface names
+    interface_info=$(ip -o -4 addr show | awk '$4 ~ /^10\.|^172\.16\.|^192\.168\./ {print $2, $4}' | cut -d/ -f1 | head -n 1)
+    interface_name=$(echo $interface_info | awk '{print $1}')
+    ip_address=$(echo $interface_info | awk '{print $2}')
+
+    # Find an available port starting from 80
+    port=$(find_available_port)
+
+    if [ -n "$ip_address" ]; then
+        generate_qr "$interface_name" "$ip_address" "$port"
+        start_php_server "$ip_address" "$port"
+    else
+        echo "No IP address found for any interface. Generating QR code for localhost."
+        generate_qr "localhost" "localhost" "$port"
+        start_php_server "localhost" "$port"
+    fi
+
+    # Trap to handle termination, stop the PHP server, and clean up files
+    trap "stop_php_server; cleanup" EXIT
+
+    # Wait for user input to stop the server
+    read -r -p "Press enter or any key to stop the server..."
+    stop_php_server
 }
 
-# Function to generate QR code
-generate_qr() {
-    qrcode-terminal "http://${1}:8000"
-}
-
-# Check if wlan0 has an IP address
-if ip addr show wlan0 | grep -q "inet "; then
-    wlan0_ip=$(ip addr show wlan0 | awk '/inet / {print $2}' | cut -d '/' -f1)
-fi
-
-# Check if wlan1 has an IP address
-if ip addr show wlan1 | grep -q "inet "; then
-    wlan1_ip=$(ip addr show wlan1 | awk '/inet / {print $2}' | cut -d '/' -f1)
-fi
-
-# Main script
-echo "Choose an option to filter photos by date:"
-echo "1) Custom Date (YYYY/MM/DD)"
-echo "2) Yesterday"
-echo "3) Today"
-read -p "Enter your choice: " choice
-
-case $choice in
-  1)
-    read -p "Enter the date (YYYY/MM/DD): " custom_date
-    exif_date=${custom_date//\//:}
-    ;;
-  2)
-    exif_date=$(date -d "yesterday" "+%Y:%m:%d")
-    ;;
-  3)
-    exif_date=$(date "+%Y:%m:%d")
-    ;;
-  *)
-    echo "Invalid choice"
-    exit 1
-    ;;
-esac
-
-# Filter files based on the selected date
-exiftool -if "\$CreateDate =~ /$exif_date/" -p "\$FileName" -q -r * > filtered_files.txt
-
-# Check if any files were found
-if [[ ! -s filtered_files.txt ]]; then
-  echo "No images available for the date you provided."
-  rm filtered_files.txt
-  exit 1
-fi
-
-# Create the HTML file
-create_html_file
-
-# Start a simple HTTP server to serve the HTML file
-echo "Starting HTTP server on port 8000..."
-python3 -m http.server 8000 &
-
-# Get the process ID of the HTTP server
-server_pid=$!
-
-# Generate and display QR code for the server URL
-if [[ -n $wlan1_ip ]]; then
-    generate_qr "$wlan1_ip"
-elif [[ -n $wlan0_ip ]]; then
-    generate_qr "$wlan0_ip"
-else
-    echo "No wireless network connection found. Generating QR code for localhost."
-    generate_qr "127.0.0.1"
-fi
-
-# Prompt user to press Enter to stop
-echo "Press Enter to stop the server and clean up..."
-read
-
-# Stop the HTTP server
-kill $server_pid
-
-# Clean up
-rm filtered_files.txt
-rm index.html
-
-echo "Clean up complete. Server stopped."
-
-}
 
 # Main script logic
 case $1 in
@@ -1058,12 +1352,10 @@ case $1 in
     -on-en)
         check_and_install_tools
         share_with_encryption
-        wait_and_cleanup
         ;;
     -von)
         check_and_install_tools
         start_sharing_visual
-        wait_and_cleanup
         ;;
     -play-v)
         check_and_install_tools
