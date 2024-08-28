@@ -1975,7 +1975,7 @@ stop_php_server
 # Function to check for updates to the tool online
 check_update() {
     # URL of the GitHub repository raw file
-    REPO_URL="hhttps://raw.githubusercontent.com/mashunterbd/FileShare/main/share.sh"
+    REPO_URL="https://raw.githubusercontent.com/mashunterbd/FileShare/main/share.sh"
     LOCAL_FILE="/usr/local/bin/share"
 
     # Function to check network connection
