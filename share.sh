@@ -58,6 +58,7 @@ show_help() {
     echo "  share -u             Start Upload Server"
     echo "  share -p             Photos Share with specify date  [ share -p M = modified date images ] [ share -p C = Create date images ] [default C M]"
     echo "  share --help         Display this help message"
+    echo "  share --update            Check Update this tool in Online"
 }
 
 
@@ -1797,6 +1798,74 @@ stop_php_server
 
 }
 
+# Function to check for updates to the tool online
+check_update() {
+    # URL of the GitHub repository raw file
+    REPO_URL="https://raw.githubusercontent.com/mashunterbd/FileShare/main/share.sh"
+    LOCAL_FILE="/usr/local/bin/share"
+
+    # Function to check network connection
+    check_network_connection() {
+        wget -q --spider http://google.com
+        if [ $? -ne 0 ]; then
+            echo "You don't have any internet connection. Please check your internet and try again."
+            exit 1
+        else
+            echo "Internet connection is stable."
+        fi
+    }
+
+    # Function to fetch the remote file size
+    get_remote_file_size() {
+        curl -sI "$REPO_URL" | grep -i Content-Length | awk '{print $2}' | tr -d '\r'
+    }
+
+    # Function to fetch the local file size
+    get_local_file_size() {
+        if [ -f "$LOCAL_FILE" ]; then
+            stat -c%s "$LOCAL_FILE"
+        else
+            echo "0"
+        fi
+    }
+
+    # Function to update the script
+    update_script() {
+        echo "Are you going to update? (y/n)"
+        read -r response
+        if [ "$response" = "y" ]; then
+            curl -sL "$REPO_URL" -o "$LOCAL_FILE"
+            chmod +x "$LOCAL_FILE"
+            echo "Update completed. You can no longer downgrade."
+        else
+            echo "Update canceled."
+            exit 0
+        fi
+    }
+
+    # Check network connection
+    check_network_connection
+
+    # Fetch the remote and local file sizes
+    remote_size=$(get_remote_file_size)
+    local_size=$(get_local_file_size)
+
+    # Check if we got valid sizes (integers)
+    if ! [[ "$remote_size" =~ ^[0-9]+$ ]] || ! [[ "$local_size" =~ ^[0-9]+$ ]]; then
+        echo "Error: Unable to determine file sizes. Aborting."
+        exit 1
+    fi
+
+    # Compare the file sizes and decide whether to update
+    if [ "$remote_size" -ne "$local_size" ]; then
+        echo "The file on the GitHub repository has changed. Would you like to update?"
+        update_script
+    else
+        echo "No update needed. You are on the latest version."
+    fi
+}
+
+
 # Main script logic
 case $1 in
     -on)
@@ -1824,6 +1893,9 @@ case $1 in
         -p)
         check_and_install_tools
         share_photos
+        ;;
+        --update)
+        check_update
         ;;
     --help)
         show_help
